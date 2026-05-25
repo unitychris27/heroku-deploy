@@ -2,13 +2,15 @@
 # ─── Stage 1: build ──────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
-# Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pin pnpm to the exact version the lockfile was generated with
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
 
 # Copy workspace manifests first (layer-cache friendly)
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* ./
+COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-lock.yaml* ./
+
 COPY lib/api-zod/package.json          lib/api-zod/
 COPY lib/api-client-react/package.json lib/api-client-react/
 COPY lib/api-spec/package.json         lib/api-spec/
@@ -16,10 +18,10 @@ COPY lib/db/package.json               lib/db/
 COPY artifacts/api-server/package.json artifacts/api-server/
 COPY scripts/package.json              scripts/
 
-# Install all dependencies (frozen)
+# Install all dependencies (frozen — must match pnpm-lock.yaml)
 RUN pnpm install --frozen-lockfile
 
-# Copy source
+# Copy full source
 COPY . .
 
 # Build the API server bundle
@@ -32,24 +34,22 @@ RUN apk add --no-cache tini
 
 WORKDIR /app
 
-# Copy only the compiled bundle + runtime package.json
+# Copy compiled bundle and runtime manifest
 COPY --from=builder /app/artifacts/api-server/dist       ./dist
 COPY --from=builder /app/artifacts/api-server/package.json ./package.json
 
-# Install production-only deps (no dev tools)
+# Install production-only deps
 RUN npm install --omit=dev --ignore-scripts 2>/dev/null || true
 
 # Create non-root user
 RUN addgroup -S botdeploy && adduser -S botdeploy -G botdeploy
 USER botdeploy
 
-# Runtime environment
 ENV NODE_ENV=production \
     PORT=8097
 
 EXPOSE 8097
 
-# Use tini as PID 1 for proper signal handling
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/index.mjs"]
 
