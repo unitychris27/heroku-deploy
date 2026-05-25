@@ -34,18 +34,19 @@ RUN addgroup -S botdeploy && adduser -S botdeploy -G botdeploy && \
 USER botdeploy
 
 # Runtime config
-# PORT        — port the HTTP server listens on (default: 8097)
-# BASE_PATH   — URL prefix when behind a sub-path proxy (leave empty for nginx at root)
+# PORT=8080 matches Hyperlift's default application port expectation.
+# Override via Hyperlift env vars if needed.
+# BASE_PATH — URL prefix when behind a sub-path proxy (leave empty for root)
 # HEROKU_API_KEY  — Heroku Platform API key
 # API_SECRET_KEY  — shared secret for X-API-Key auth
 ENV NODE_ENV=production \
-    PORT=8097 \
+    PORT=8080 \
     BASE_PATH=""
 
-EXPOSE 8097
+EXPOSE 8080
 
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "--enable-source-maps", "dist/index.mjs"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- "http://localhost:${PORT}/api/healthz" | grep -q '"status":"ok"' || exit 1
+  CMD wget -qO- "http://localhost:8080/api/healthz" | grep -q '"status":"ok"' || exit 1
