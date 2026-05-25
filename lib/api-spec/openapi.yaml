@@ -1,0 +1,486 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: deploy
+    description: Bot deployment operations
+  - name: logs
+    description: Log retrieval operations
+  - name: bots
+    description: Bot registry operations
+  - name: apps
+    description: App management operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /bots:
+    get:
+      operationId: listBots
+      tags: [bots]
+      summary: List available bot types with their field definitions
+      responses:
+        "200":
+          description: Bot registry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotListResponse"
+
+  /deploy:
+    post:
+      operationId: deployBot
+      tags: [deploy]
+      summary: Deploy a WhatsApp bot to Heroku
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeployRequest"
+      responses:
+        "202":
+          description: Deployment queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeployResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: App already deployed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /deploy/status/{jobId}:
+    get:
+      operationId: getDeployStatus
+      tags: [deploy]
+      summary: Get deployment job status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /deploy/jobs:
+    get:
+      operationId: listDeployJobs
+      tags: [deploy]
+      summary: List all deployment jobs
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+
+  /apps/{appName}/config:
+    get:
+      operationId: getAppConfig
+      tags: [apps]
+      summary: Get app config vars from Heroku
+      parameters:
+        - name: appName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Config vars
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppConfigResponse"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateAppConfig
+      tags: [apps]
+      summary: Update app config vars on Heroku
+      parameters:
+        - name: appName
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppConfigUpdateRequest"
+      responses:
+        "200":
+          description: Config vars updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppActionResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /apps/{appName}/restart:
+    post:
+      operationId: restartApp
+      tags: [apps]
+      summary: Restart all dynos for an app
+      parameters:
+        - name: appName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dynos restarted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppActionResponse"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /apps/{appName}:
+    delete:
+      operationId: deleteApp
+      tags: [apps]
+      summary: Delete a Heroku app and remove it from history
+      parameters:
+        - name: appName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: App deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppActionResponse"
+        "500":
+          description: Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /logs/{appName}:
+    get:
+      operationId: getAppLogs
+      tags: [logs]
+      summary: Get log session URL for a deployed app
+      parameters:
+        - name: appName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log session URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogsResponse"
+        "500":
+          description: Failed to get logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    BotFieldOption:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+      required:
+        - value
+        - label
+
+    BotField:
+      type: object
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        placeholder:
+          type: string
+        required:
+          type: boolean
+        type:
+          type: string
+          enum: [text, password, select]
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/BotFieldOption"
+      required:
+        - key
+        - label
+        - placeholder
+        - required
+
+    BotDefinition:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/BotField"
+      required:
+        - id
+        - name
+        - fields
+
+    BotListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        bots:
+          type: array
+          items:
+            $ref: "#/components/schemas/BotDefinition"
+      required:
+        - success
+        - bots
+
+    DeployRequest:
+      type: object
+      properties:
+        botType:
+          type: string
+          enum: [cypherx, bwm, cypherxultra, kingmd, anitav4, atassa]
+        appName:
+          type: string
+          minLength: 3
+          maxLength: 30
+        botVars:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - botType
+        - appName
+        - botVars
+
+    DeployResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        jobId:
+          type: string
+        message:
+          type: string
+        appUrl:
+          type: string
+        dashboard:
+          type: string
+      required:
+        - success
+        - jobId
+        - message
+        - appUrl
+        - dashboard
+
+    DeploymentJob:
+      type: object
+      properties:
+        id:
+          type: string
+        appName:
+          type: string
+        botType:
+          type: string
+        status:
+          type: string
+          enum: [queued, creating_app, setting_buildpack, setting_config, deploying, scaling, completed, failed]
+        appUrl:
+          type: string
+        logsUrl:
+          type: string
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        scheduledDeletionAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - appName
+        - botType
+        - status
+        - createdAt
+        - updatedAt
+        - scheduledDeletionAt
+
+    JobStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        job:
+          $ref: "#/components/schemas/DeploymentJob"
+      required:
+        - success
+        - job
+
+    JobListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeploymentJob"
+      required:
+        - success
+        - jobs
+
+    LogsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        appName:
+          type: string
+        logsUrl:
+          type: string
+      required:
+        - success
+        - appName
+        - logsUrl
+
+    AppConfigResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        appName:
+          type: string
+        configVars:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - success
+        - appName
+        - configVars
+
+    AppConfigUpdateRequest:
+      type: object
+      properties:
+        configVars:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - configVars
+
+    AppActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        error:
+          type: string
+      required:
+        - success
+        - error
