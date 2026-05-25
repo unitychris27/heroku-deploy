@@ -9,107 +9,32 @@ Supports **9 bot types**: CypherX, BWM-XMD, King MD, Queen Anitah, Atassa MD, Cy
 
 ```
 heroku-deploy/
-├── artifacts/api-server/        # Express API (Node.js 20)
+├── artifacts/bot-deploy-api/    # Express API server (Node.js 20, esbuild)
 │   ├── src/
-│   │   ├── app.ts               # Express app setup
-│   │   ├── config/bots.ts       # Bot definitions & field schemas
+│   │   ├── app.ts               # Express app — BASE_PATH mount
+│   │   ├── index.ts             # HTTP server entry point
+│   │   ├── config/bots.ts       # Bot definitions & field schemas (9 bots)
 │   │   ├── routes/
-│   │   │   ├── external.ts      # GET /api/external/bots
-│   │   │   ├── deploy.ts        # POST /api/deploy
-│   │   │   ├── apps.ts          # GET/DELETE /api/apps/:id
 │   │   │   ├── health.ts        # GET /api/healthz
-│   │   │   └── ...
+│   │   │   ├── external.ts      # POST /api/external/deploy, GET /api/external/bots
+│   │   │   ├── deploy.ts        # POST /api/deploy (internal form)
+│   │   │   ├── apps.ts          # GET/PATCH/DELETE /api/apps/:name
+│   │   │   ├── admin.ts         # PATCH /api/admin/settings
+│   │   │   └── logs.ts          # GET /api/logs/:appName
 │   │   └── services/
 │   │       ├── heroku.ts        # Heroku Platform API wrapper
-│   │       └── queue.ts         # Deploy job queue
-│   └── dist/                    # Compiled output (esbuild)
+│   │       ├── queue.ts         # In-memory deploy job queue
+│   │       ├── settings.ts      # Persistent settings (data/bot-deploy-settings.json)
+│   │       └── appRegistry.ts   # In-memory app → API key registry
+│   └── dist/                    # esbuild output (index.mjs + pino workers)
 ├── deploy.php                   # cPanel PHP frontend — deploy form
 ├── manage.php                   # cPanel PHP frontend — manage bots
 ├── admin-settings.php           # Admin settings panel
-├── login.php / logout.php       # Session auth
-├── pm2-prod.config.cjs          # PM2 config for VPS/cPanel
-└── Dockerfile                   # Docker alternative deployment
+├── Dockerfile                   # Docker build (2-stage, node:20-alpine)
+├── docker-compose.yml           # Docker Compose service definition
+├── nginx.conf                   # nginx reverse proxy template
+└── pm2-prod.config.cjs          # PM2 config for bare-metal VPS / cPanel
 ```
-
----
-
-## Quick Start (Docker)
-
-```bash
-# 1. Clone
-git clone https://github.com/unitychris27/heroku-deploy.git
-cd heroku-deploy
-
-# 2. Configure environment
-cp .env.example .env
-nano .env          # set API_SECRET_KEY and HEROKU_API_KEY
-
-# 3. Build & run
-docker build -t heroku-deploy .
-docker run -d \
-  --name heroku-deploy \
-  --restart unless-stopped \
-  -p 8097:8097 \
-  --env-file .env \
-  heroku-deploy
-
-# 4. Verify
-curl http://localhost:8097/api/healthz
-# → {"status":"ok"}
-```
-
----
-
-## Deployment Options
-
-### Option A — Docker (Recommended)
-
-Requires Docker on any VPS or cPanel server with Docker support.
-
-```bash
-docker compose up -d          # uses docker-compose.yml
-```
-
-Or manually:
-
-```bash
-docker build -t heroku-deploy .
-docker run -d --name heroku-deploy --restart unless-stopped \
-  -p 8097:8097 --env-file .env heroku-deploy
-```
-
-### Option B — PM2 on VPS / cPanel
-
-Requires Node.js ≥ 20 and pnpm.
-
-```bash
-# Install dependencies
-pnpm install --filter @workspace/api-server
-
-# Build
-node artifacts/api-server/build.mjs
-
-# Start with PM2
-pm2 start pm2-prod.config.cjs
-pm2 save
-pm2 startup          # enable @reboot auto-start
-```
-
-### Option C — cPanel Shared Hosting (PHP frontend only)
-
-Upload the PHP files to your public_html or a subdomain directory:
-
-```
-deploy.php
-manage.php
-admin-settings.php
-login.php
-logout.php
-config.php
-includes/
-```
-
-Point the PHP frontend at your running API (Option A or B) by setting `API_BASE_URL` in `config.php`.
 
 ---
 
@@ -117,97 +42,209 @@ Point the PHP frontend at your running API (Option A or B) by setting `API_BASE_
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `API_SECRET_KEY` | ✅ | Shared secret for PHP ↔ API auth (e.g. `Digitex2025`) |
+| `PORT` | ✅ | Port the HTTP server listens on (default: `8097`) |
 | `HEROKU_API_KEY` | ✅ | Heroku Platform API key — get from `heroku auth:token` |
-| `PORT` | optional | API listen port (default: `8097`) |
-| `NODE_ENV` | optional | `production` or `development` |
+| `API_SECRET_KEY` | ✅ | Shared secret for `X-API-Key` auth on protected endpoints |
+| `BASE_PATH` | optional | URL prefix when running behind a sub-path proxy (e.g. `/heroku-deploy`). Leave **empty** when nginx proxies at root (`api.yourdomain.com → /`) |
+| `NODE_ENV` | optional | `production` or `development` (default: `production`) |
 
 Create `.env` from the example:
 
 ```bash
 cp .env.example .env
+nano .env
 ```
 
 `.env.example`:
 ```env
-API_SECRET_KEY=change-me
 HEROKU_API_KEY=HRKU-xxxxxxxxxxxxxxxxxxxx
+API_SECRET_KEY=change-me-to-a-strong-secret
 PORT=8097
+BASE_PATH=
 NODE_ENV=production
 ```
 
 ---
 
+## Deployment Options
+
+### Option A — Docker + nginx (Recommended for VPS / Hyperlift)
+
+Mirrors exactly how the API runs in the Replit hosted environment.
+
+```bash
+# 1. Clone
+git clone https://github.com/unitychris27/heroku-deploy.git
+cd heroku-deploy
+
+# 2. Configure
+cp .env.example .env
+nano .env           # set HEROKU_API_KEY and API_SECRET_KEY
+
+# 3. Build and start
+docker compose up -d --build
+
+# 4. Verify
+curl http://localhost:8097/api/healthz
+# → {"status":"ok"}
+
+# 5. Check all 9 bots are loaded
+curl http://localhost:8097/api/external/bots | python3 -m json.tool
+```
+
+**Then set up nginx** (copy `nginx.conf`, replace `api.yourdomain.com`, run Certbot):
+
+```bash
+sudo cp nginx.conf /etc/nginx/sites-available/api.yourdomain.com
+# Edit: replace api.yourdomain.com with your actual domain
+sudo nano /etc/nginx/sites-available/api.yourdomain.com
+
+sudo ln -s /etc/nginx/sites-available/api.yourdomain.com \
+           /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+
+# SSL (free Let's Encrypt cert)
+sudo certbot --nginx -d api.yourdomain.com
+```
+
+Your API will be live at `https://api.yourdomain.com/api/healthz`.
+
+---
+
+### Option B — Docker (manual, without Compose)
+
+```bash
+docker build -t heroku-deploy .
+docker run -d \
+  --name bot-deploy-api \
+  --restart unless-stopped \
+  -p 8097:8097 \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  heroku-deploy
+```
+
+---
+
+### Option C — PM2 on bare-metal VPS / cPanel (no Docker)
+
+Requires Node.js ≥ 20 and pnpm 10.x.
+
+```bash
+# Install pnpm if needed
+corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+# Install deps (bot-deploy-api only)
+pnpm install --filter @workspace/bot-deploy-api...
+
+# Build
+node artifacts/bot-deploy-api/build.mjs
+
+# Copy env
+cp .env.example .env && nano .env
+
+# Start with PM2
+pm2 start pm2-prod.config.cjs
+pm2 save
+pm2 startup      # enable auto-start on reboot
+```
+
+---
+
+### Option D — Replit (cloud-hosted)
+
+The API is already set up as a Replit artifact at `/heroku-deploy`. In Replit:
+
+- **BASE_PATH** = `/heroku-deploy` (sub-path proxy routing)
+- **PORT** = `8098` (assigned by Replit)
+- Accessible at: `https://<repl-url>/heroku-deploy/api/healthz`
+
+The Replit dev command bakes in these values:
+```json
+"dev": "PORT=8098 BASE_PATH=/heroku-deploy node ./build.mjs && PORT=8098 BASE_PATH=/heroku-deploy node --enable-source-maps ./dist/index.mjs"
+```
+
+For Docker/VPS: `BASE_PATH` is empty and `PORT` is `8097` — the API mounts routes at `/api/...` directly.
+
+---
+
 ## API Endpoints
+
+> **Base URL** varies by deployment:
+> - Docker/VPS: `https://api.yourdomain.com`
+> - Replit: `https://<repl>.replit.dev/heroku-deploy`
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/api/healthz` | none | Health check |
-| `GET` | `/api/external/bots` | none | List all supported bot types & fields |
-| `POST` | `/api/deploy` | `x-api-key` | Deploy a bot to Heroku |
-| `GET` | `/api/apps` | `x-api-key` | List deployed bot apps |
-| `GET` | `/api/apps/:id` | `x-api-key` | Get a single app |
-| `DELETE` | `/api/apps/:id` | `x-api-key` | Delete a Heroku app |
-| `GET` | `/api/apps/:id/logs` | `x-api-key` | Stream app logs |
+| `GET` | `<base>/api/healthz` | none | Health check |
+| `GET` | `<base>/api/external/bots` | none | List all bot types & fields |
+| `POST` | `<base>/api/external/deploy` | `X-API-Key` | Deploy a bot to Heroku |
+| `GET` | `<base>/api/external/status/:jobId` | `X-API-Key` | Poll deploy status |
+| `GET` | `<base>/api/external/config/:app` | `X-API-Key` | Get Heroku app config vars |
+| `PATCH` | `<base>/api/external/config/:app` | `X-API-Key` | Update config vars |
+| `POST` | `<base>/api/external/restart/:app` | `X-API-Key` | Restart dynos |
+| `DELETE` | `<base>/api/external/delete/:app` | `X-API-Key` | Delete Heroku app |
+| `GET` | `<base>/api/external/check/:app` | `X-API-Key` | Check real Heroku status |
+| `GET` | `<base>/api/admin/settings` | `X-API-Key` | View settings |
+| `PATCH` | `<base>/api/admin/settings` | `X-API-Key` | Update API keys |
+| `POST` | `<base>/api/admin/test-connection` | `X-API-Key` | Test Heroku key |
 
-**Authentication:** Pass your `API_SECRET_KEY` as the `x-api-key` header on protected routes.
+**Authentication** — pass your `API_SECRET_KEY` as:
+```
+X-API-Key: your-secret-key
+# or
+Authorization: Bearer your-secret-key
+# or
+?key=your-secret-key
+```
+
+---
+
+## Deploy a Bot — Example
 
 ```bash
-curl -H "x-api-key: Digitex2025" http://localhost:8097/api/apps
+curl -X POST https://api.yourdomain.com/api/external/deploy \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-secret-key" \
+  -d '{
+    "botType": "bwm",
+    "appName": "my-whatsapp-bot",
+    "botVars": {
+      "session": "YOUR_SESSION_STRING",
+      "ownerNumber": "254700000000"
+    }
+  }'
+
+# Poll until status = "completed"
+curl -H "X-API-Key: your-secret-key" \
+  https://api.yourdomain.com/api/external/status/my-whatsapp-bot-1234567890
 ```
 
 ---
 
 ## Supported Bots
 
-| Bot | Description |
-|-----|-------------|
-| CypherX | Multi-device WhatsApp bot |
-| BWM-XMD | Feature-rich MD bot |
-| King MD | Royal commands bot |
-| Queen Anitah | Anitah MD variant |
-| Atassa MD | Atassa fork |
-| CypherX-Ultra | Enhanced CypherX |
-| Keith MD | Keith's MD fork |
-| June Ultra | June Ultra edition |
-| Silent Wolf | Silent Wolf bot |
-
----
-
-## Reverse Proxy Setup (nginx)
-
-Point `api.yourdomain.com` at the running container/PM2 process:
-
-```nginx
-server {
-    listen 80;
-    server_name api.yourdomain.com;
-
-    location / {
-        proxy_pass         http://127.0.0.1:8097;
-        proxy_http_version 1.1;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-Then enable SSL with Certbot:
-
-```bash
-certbot --nginx -d api.yourdomain.com
-```
+| Key | Name | Repo |
+|-----|------|------|
+| `cypherx` | CypherX | TristanCage/CypherX |
+| `bwm` | BWM-XMD | Bwmxmd254/BWM-XMD-GO |
+| `cypherxultra` | CypherX-Ultra | Dark-Xploit/CypherX-Ultra |
+| `kingmd` | King MD | sesco001/KING-MD |
+| `anitav4` | Queen Anitah | Blurnk/Anita-V4 |
+| `atassa` | Atassa MD | mauricegift/atassa |
+| `keithmd` | Keith MD | Keith-web3/Keith-MD |
+| `juneultra` | June Ultra | june-lang/june-ultra |
+| `silentwolf` | Silent Wolf | silent-wolf-dev/silent-wolf |
 
 ---
 
 ## PHP Frontend Configuration
 
-Edit `config.php` to point the PHP panel at your API:
+The PHP panel (`deploy.php`, `manage.php`, `admin-settings.php`) connects to the API.  
+Edit `config.php`:
 
 ```php
-define('API_BASE_URL', 'https://api.yourdomain.com');
+define('API_BASE_URL', 'https://api.yourdomain.com');  // no trailing slash
 define('API_SECRET_KEY', 'your-secret-key');
 define('ADMIN_PASSWORD', 'your-admin-password');
 ```
@@ -217,17 +254,17 @@ define('ADMIN_PASSWORD', 'your-admin-password');
 ## Development
 
 ```bash
-# Install all workspace dependencies
+# Install all workspace deps
 pnpm install
 
-# Run API in dev mode (hot reload)
-pnpm --filter @workspace/api-server run dev
+# Run bot-deploy API in dev mode (rebuilds on each start)
+pnpm --filter @workspace/bot-deploy-api run dev
 
 # Typecheck
-pnpm run typecheck
+pnpm --filter @workspace/bot-deploy-api run typecheck
 
-# Build for production
-node artifacts/api-server/build.mjs
+# Build production bundle
+node artifacts/bot-deploy-api/build.mjs
 ```
 
 ---

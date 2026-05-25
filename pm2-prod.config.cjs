@@ -1,18 +1,24 @@
 module.exports = {
-  apps: [{
-    name: "bot-deploy-api",
-    cwd: "/home/tipmrnhl/herokudeploy/artifacts/api-server",
-    script: "dist/index.mjs",
-    instances: 1,
-    autorestart: true,
-    watch: false,
-    max_memory_restart: "256M",
-    env: {
-      NODE_ENV: "production",
-      PORT: 8097,
+  apps: [
+    {
+      name: "bot-deploy-api",
+      script: "artifacts/bot-deploy-api/dist/index.mjs",
+      interpreter: "node",
+      interpreter_args: "--enable-source-maps",
+      instances: 1,
+      exec_mode: "fork",
+      watch: false,
+      env: {
+        NODE_ENV: "production",
+        PORT: "8097",
+        BASE_PATH: "",
+      },
+      error_file: "logs/bot-deploy-api.err.log",
+      out_file: "logs/bot-deploy-api.out.log",
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+      max_restarts: 10,
+      restart_delay: 3000,
+      autorestart: true,
     },
-    error_file: "/home/tipmrnhl/herokudeploy/artifacts/api-server/logs/error.log",
-    out_file: "/home/tipmrnhl/herokudeploy/artifacts/api-server/logs/out.log",
-    log_date_format: "YYYY-MM-DD HH:mm:ss",
-  }],
+  ],
 };

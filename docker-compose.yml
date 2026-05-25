@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  api:
+  bot-deploy-api:
     build: .
-    container_name: heroku-deploy-api
+    container_name: bot-deploy-api
     restart: unless-stopped
     ports:
       - "8097:8097"
@@ -12,8 +12,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=8097
+      # BASE_PATH is empty when nginx proxies at root (api.yourdomain.com → /)
+      # Set BASE_PATH=/heroku-deploy if running behind a sub-path proxy
+      - BASE_PATH=
     volumes:
-      # Persist settings & logs outside the container
+      # Persist admin settings (herokuApiKey, apiSecretKey) across restarts
       - ./data:/app/data
       - ./logs:/app/logs
     healthcheck:
@@ -21,7 +24,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     logging:
       driver: "json-file"
       options:
